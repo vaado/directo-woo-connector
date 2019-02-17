@@ -1,0 +1,11 @@
+{
+  "name": "vaado/directo-woo-connector",
+  "autoload": {
+    "psr-4": {
+      "DirectoWooConnector\\": "src/"
+    }
+  },
+  "require": {
+    "vaado/directo": "dev-develop"
+  }
+}
