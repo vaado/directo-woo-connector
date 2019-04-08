@@ -2,7 +2,6 @@
 
 namespace DirectoWooConnector;
 
-
 use Directo\DirectoXMLParser;
 
 class WooAttribute
@@ -25,6 +24,7 @@ class WooAttribute
         foreach ($this->getAttributeMapping() as $directo_attribute_name => $woo_attribute) {
             $parser = new DirectoXMLParser();
             $datafields = $parser->getDataFields($item);
+            $attribute_val = $parser->getAttributeValue($item, $directo_attribute_name);
             if (isset($datafields[$directo_attribute_name])) {
                 $attribute = [
                     'attribute_name' => $woo_attribute['name'],
@@ -32,10 +32,19 @@ class WooAttribute
                     'attribute_type' => 'text',
                     'attribute_orderby' => 'menu_order',
                     'attribute_public' => 0,
-
                 ];
                 $this->addAttribute($attribute);
                 $attribute_values[$woo_attribute['name']] = $datafields[$directo_attribute_name];
+            } elseif (isset($attribute_val) && $attribute_val) {
+                $attribute = [
+                    'attribute_name' => $woo_attribute['name'],
+                    'attribute_label' => $woo_attribute['label'],
+                    'attribute_type' => 'text',
+                    'attribute_orderby' => 'menu_order',
+                    'attribute_public' => 0,
+                ];
+                $this->addAttribute($attribute);
+                $attribute_values[$woo_attribute['name']] = $attribute_val;
             }
         }
 
@@ -102,7 +111,7 @@ class WooAttribute
                 'name' => 'pa_'.$woo_attribute_name,
                 'value' => $attribute_value,
                 'position' => 0,
-                'is_visible' => 1,
+                'is_visible' => 0,
                 'is_variatsion' => 0,
                 'is_taxonomy' => 1,
             ];
@@ -111,7 +120,25 @@ class WooAttribute
         update_post_meta($product_id, '_product_attributes', $attributes);
         flush_rewrite_rules();
         foreach ($attribute_values as $woo_attribute_name => $attribute_value) {
-            wp_set_object_terms($product_id, $attribute_value, 'pa_'.$woo_attribute_name);
+            $tt_ids = wp_set_object_terms($product_id, $attribute_value, 'pa_'.$woo_attribute_name);
+            $this->updateAttributeValueSlug($tt_ids, $attribute_value);
+        }
+    }
+
+    public function updateAttributeValueSlug($tt_ids, $attribute_value)
+    {
+        global $wpdb;
+        $attribute_value =  str_replace(',','_', $attribute_value);
+        foreach ($tt_ids as $tt_id) {
+            $result = $wpdb->get_row('
+            SELECT term_id FROM '.$wpdb->prefix.'term_taxonomy 
+            WHERE term_taxonomy_id = '.$tt_id);
+            $term_id = $result->term_id;
+            $wpdb->update(
+                $wpdb->prefix.'terms',
+                ['slug' => sanitize_title($attribute_value)],
+                ['term_id' => $term_id]
+            );
         }
     }
 }

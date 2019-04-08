@@ -5,6 +5,7 @@ namespace DirectoWooConnector;
 use Directo\ClientFactory;
 use Directo\DirectoClient;
 use Directo\DirectoXMLParser;
+use Directo\Order as DirectoOrder;
 
 class WooDirecto {
 
@@ -16,12 +17,30 @@ class WooDirecto {
         'woo_directo_key'
     ];
 
-    private $wooProduct;
-
     /**
      * @var DirectoClient
      */
-    private $client;
+    private $directo;
+
+    /**
+     * @var DirectoXMLParser
+     */
+    private $parser;
+
+    /**
+     * @var WooProduct
+     */
+    private $wooProduct;
+
+    /**
+     * @var WooCustomer
+     */
+    private $wooCustomer;
+
+    /**
+     * @var WooSpecificPrice
+     */
+    private $wooSpecificPrice;
 
     public static function init()
     {
@@ -38,7 +57,7 @@ class WooDirecto {
             'Directo',
             'Directo',
             'add_users',
-            DIRECO_PLUGIN_DIR . '/index.php',
+            DIRECTO_PLUGIN_DIR . '/index.php',
             ''
         );
     }
@@ -48,10 +67,20 @@ class WooDirecto {
      */
     public function createClient()
     {
-        $account = get_option('woo_directo_account');
-        $key = get_option('woo_directo_key');
+        $account = $this->getAccount();
+        $key = $this->getAppKey();
         $clientFactory = new ClientFactory();
-        $this->client = $clientFactory->create($account, $key);
+        $this->directo = $clientFactory->create($account, $key);
+    }
+
+    public function getAccount()
+    {
+        return get_option('woo_directo_account');
+    }
+
+    public function getAppKey()
+    {
+        return get_option('woo_directo_key');
     }
 
     /**
@@ -77,13 +106,30 @@ class WooDirecto {
 
     /**
      * Synchronize Directo data with Woo.
+     * @param $type
      */
-    public function syncData()
+    public function syncData($type)
     {
         $this->createClient();
-        $this->processItems();
-        $this->processCustomers();
-        $this->processPriceFormulas();
+        $this->parser = new DirectoXMLParser();
+        switch ($type) {
+            case 'items':
+                $this->processItems();
+                break;
+            case 'customers':
+                $this->processCustomers();
+                break;
+            case 'priceformulas':
+                $this->processPriceFormulas();
+                break;
+            case 'all':
+                $this->processItems();
+                $this->processCustomers();
+                $this->processPriceFormulas();
+                break;
+            default:
+                break;
+        }
     }
 
     /**
@@ -91,61 +137,41 @@ class WooDirecto {
      */
     public function processItems()
     {
-        $this->wooProduct = new WooProduct();
-        $response = $this->client
-            ->get('item');
-        $parser = new DirectoXMLParser();
-        $items = $parser->parseResponse($response);
-        foreach ($items->items->item as $item) {
-            $is_web_product = $this->isWebProduct($parser, $item);
-            if ($is_web_product) {
-                $code = (string)$item->attributes()->code;
-                $product_id = wc_get_product_id_by_sku($code);
-                if (isset($product_id) && $product_id && $product_id != 0) {
-                    $this->wooProduct->updateProduct($product_id, $item);
-                } else {
-                    $this->wooProduct->addProduct($item);
-                }
-            }
-        }
+        $this->wooProduct = new WooProduct($this->directo, $this->parser);
+        $this->wooProduct->syncProducts();
     }
 
     /**
-     * @param $parser DirectoXMLParser
-     * @param $item
-     * @return bool
+     * Processes customer XML.
      */
-    public function isWebProduct($parser, $item)
-    {
-        $web_product_attribute = woo_directo_web_product_attribute();
-        $web_product_value = $parser->getDataFieldValueByCode($item, $web_product_attribute['code']);
-
-        return $web_product_value === $web_product_attribute['value'];
-    }
-
-
     public function processCustomers()
     {
-        $response = $this->client
-            ->Exceptionget('customer');
-        $parser = new DirectoXMLParser();
-        $customers = $parser->parseResponse($response);
-
-        foreach ($customers->customers->customer as $customer) {
-
-        }
+        $this->wooCustomer = new WooCustomer($this->directo, $this->parser);
+        $this->wooCustomer->syncCustomers();
     }
 
+    /**
+     * Processes Price Formula XML.
+     */
     public function processPriceFormulas()
     {
-        $response = $this->client
-            ->get('priceformularow');
-        $parser = new DirectoXMLParser();
-        $priceFormulas = $parser->parseResponse($response);
-
-        foreach ($priceFormulas->priceformularows->priceformularow as $priceformularow) {
-
-        }
+        $this->wooSpecificPrice = new WooSpecificPrice($this->directo, $this->parser);
+        $this->wooSpecificPrice->syncSpecificPrices();
     }
 
+    public function postOrder($orderId)
+    {
+        $this->createClient();
+        $directoOrder = new DirectoOrder();
+        $wooOrder = new WooOrder();
+        $wooOrder->post($this->directo, $directoOrder, $orderId);
+    }
+
+    public function postCustomer($user_id)
+    {
+        $this->createClient();
+        $this->parser = new DirectoXMLParser();
+        $this->wooCustomer = new WooCustomer($this->directo, $this->parser);
+        $this->wooCustomer->post($this->directo, $user_id);
+    }
 }
